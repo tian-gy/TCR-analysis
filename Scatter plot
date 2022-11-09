@@ -1,0 +1,94 @@
+library(readr);library(plyr);library(openxlsx);library(ggplot2);library(dplyr);library(immunarch);library(scales);library(tidyr)
+
+path<-'E:/Data/TCR-seq/Project1/PT031/unique'
+fileNames <- dir(path) 
+filePath <- sapply(fileNames, function(x){ 
+    paste(path,x,sep='/')})  
+df <- lapply(filePath, function(x){
+    read.table(x,na.strings = c("NA"),header = T,sep="	")})
+for (i in 1:length(fileNames)){
+    names(df)[i]<-substring(names(df[i]),1,6)
+    temp<-df[[i]]
+    temp<-unite(temp,"CloneType",c('CDR3.aa','V.name','J.name'), sep="_", remove = T)
+    # temp<-subset(temp,temp[,3]>0.00001)
+    temp$Proportion<-prop.table(temp$Proportion)
+    colnames(temp)[2]<-paste(substring(names(df[i]),1,6),'Counts')
+    colnames(temp)[3]<-paste(substring(names(df[i]),1,6),'Fre')
+    df[[i]] = temp
+}
+
+HVG<-read.table('E:/Data/TCR-seq/Project1/Repertoire/Repertoire031.csv',na.strings = c("NA"),header = T,sep=",")
+POD000<-df[['031000']]
+# cols <- c("#F08080","#3CB371","#BA55D3","#4169E1")
+cols <- c("#FF0000","gray80","gray80","gray80")
+Table<-matrix (data=NA, nrow = length(df), ncol = 8, byrow = FALSE, dimnames = NULL)
+colnames(Table)<-c("Day","Pre-HVG","POD-HVG","Overlap-HVG","Day","HVG-Nonpre","HVG-pre","NonHVG")
+dfPlot<-df
+for (i in 1:length(dfPlot)){
+  temp <-dfPlot[[i]] %>% 
+  left_join(FreqHVG, by = c("CloneType"))
+  temp <-temp %>% 
+  left_join(Pre, by = c("CloneType"))
+  temp<-temp[,c(3,4,5)]
+  temp[,2][is.na(temp[,2])] <- 'NonHVG';temp[,3][is.na(temp[,3])] <- 'NonPre'
+  temp<-unite(temp,"HVGPre",c('HVG','Pre'), sep="_", remove = T)
+  temp<-aggregate(.~HVGPre,data=temp,sum)
+  Table[i,5]<-names(dfPlot[i]);Table[i,6]<-temp[1,2]*100;Table[i,7]<-temp[2,2]*100;Table[i,8]<-(temp[3,2]+temp[4,2])*100
+}
+
+
+lm_eqn <- function(df){
+  m <- lm(y ~ x, df);
+  eq <- substitute(italic(y) == a + b %.% italic(x)*","~~italic(r)^2~"="~r2, 
+                   list(a = format(unname(coef(m)[1]), digits = 2),
+                        b = format(unname(coef(m)[2]), digits = 2),
+                        r2 = format(summary(m)$r.squared, digits = 3)))
+  as.character(as.expression(eq));
+}
+
+dfPlot["031000"]<-NULL
+# HVG
+for (i in 1:length(dfPlot)){
+    temp = merge(dfPlot[[i]],POD000, all = T,  by = 'CloneType')
+    temp = merge(temp,dfHVG, all = T,  by = 'CloneType')
+    temp = temp[c(1,3,5,6)]
+    temp[,2][is.na(temp[,2])] <- 0.00001;temp[,3][is.na(temp[,3])] <- 0.00001
+    colnames(temp)[2] <- 'X4PostLTx';colnames(temp)[3] <- 'X3PreLTx'
+    temp<-data.frame(temp,Group=temp[,1])
+    temp[,5][temp[,2]!=0.00001&temp[,3]==0.00001] = 'X4PostLTx';temp[,5][temp[,3]!=0.00001&temp[,2]==0.00001] = "X3PreLTx";temp[,5][(temp[,2]!=0.00001)&(temp[,3]!=0.00001)] = "X2Overlap"
+    temp[,5][(temp[,2]==0.00001)&(temp[,3]==0.00001)] = "Delete"
+    temp<-subset(temp,temp$Group!="Delete")
+    temp<-data.frame(temp,Label=temp[,5])
+    temp[,5][temp[,4]!='NA'] = "X1HVG"
+    NonHVGtemp<-subset(temp,temp$Group!="X1HVG");HVGtemp<-subset(temp,temp$Group=="X1HVG");Scatter<-subset(temp,temp$Label=="X2Overlap")
+    colnames(Scatter)[2] <- 'y';colnames(Scatter)[3] <- 'x'
+    Xaxis<-subset(temp[temp$Label=="X3PreLTx",], select = c(Group,X3PreLTx))
+    Xaxis<-aggregate(.~Group,data=Xaxis,sum)
+    Yaxis<-subset(temp[temp$Label=="X4PostLTx",], select = c(Group,X4PostLTx))
+    Yaxis<-aggregate(.~Group,data=Yaxis,sum)
+    Zaxis<-subset(temp[temp$Label=="X2Overlap",], select = c(Group,X4PostLTx))
+    Zaxis<-aggregate(.~Group,data=Zaxis,sum)
+    Table[i+1,1]<-names(dfPlot[i])
+    Table[i+1,2]<-substr(Xaxis[1,2]*100/(Xaxis[1,2]+Xaxis[2,2]+Yaxis[1,2]+Yaxis[2,2]),1,5)
+    Table[i+1,3]<-substr(Yaxis[1,2]*100,1,5)
+    Table[i+1,4]<-substr(Zaxis[1,2]*100,1,5)
+    #Table[i+1,2]<-substr(Xaxis[1,2]*100/(Xaxis[1,2]+Xaxis[2,2]),1,7)
+    #Table[i+1,3]<-substr(Yaxis[1,2]*100/(Yaxis[1,2]+Yaxis[2,2]),1,7)
+    #Table[i+1,4]<-substr(Zaxis[1,2]*100/(Zaxis[1,2]+Zaxis[2,2]),1,7)
+    #绘图
+    Plot = ggplot() + 
+    geom_point(data=NonHVGtemp, aes(x = X3PreLTx, y = X4PostLTx, size=(log(X3PreLTx,10)+log(X4PostLTx,10)),fill = Group),shape=21,show.legend = FALSE,color="gray20", alpha = 0.5) + 
+    scale_colour_manual(values = cols,aesthetics = "fill") + 
+    # geom_text(data = Scatter, aes(x=0.00005, y=0.1, label = lm_eqn(Scatter)), hjust = 0, parse = TRUE,, size=6) +
+    # stat_smooth(data = Scatter, aes(x = x, y = y, size=(log(x,10)+log(y,10))), color= "gray25", method = "lm", fullrange = T,show.legend = FALSE) +
+    theme_bw() + theme(axis.text= element_text(size=30, color="black", face= "bold", vjust=0.5, hjust=0.5)) + 
+    theme(axis.title= element_text(size=30, color="black", face= "bold", vjust=0.5, hjust=0.5)) + theme(axis.line = element_line(colour="black")) + theme(panel.border = element_blank()) +  theme(aspect.ratio=1) + scale_y_log10(limits = c(0.00001,1),breaks=trans_breaks("log10",function(x)10^x),labels = trans_format("log10", math_format(10^.x))) + 
+    scale_x_log10(limits = c(0.00001,1),breaks=trans_breaks("log10",function(x)10^x),labels = trans_format("log10", math_format(10^.x))) + 
+    xlab("Pre-LTx")+ ylab(paste(names(dfPlot[i]))) + 
+    #unique("text", x=0.3, y=0.00002, label=paste(Table[i+1,2],"%"),fontface="italic", colour="Black", size=10) +
+    unique("text", x=0.00005, y=0.8, label=paste(Table[i+1,3],"%"),fontface="italic", colour="black", size=10) + 
+    unique("text", x=0.3, y=0.8, label=paste(Table[i+1,4],"%"),fontface="italic", colour="black", size=10)
+    Plot2 = Plot + 
+    geom_point(data=HVGtemp,  aes(x = X3PreLTx, y = X4PostLTx, size=(log(X3PreLTx,10)+log(X4PostLTx,10)),fill = Group),shape=21,show.legend = FALSE,color="gray20", alpha = 0.5)
+    #导出
+    ggsave(Plot2,file = paste('unique-PT',names(dfPlot[i]),".png",sep="") ,path = 'E:/Analysis/TCR-seq/Graph', scale = 1, width = NA, height = NA, dpi = 600, limitsize = TRUE)}
