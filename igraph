@@ -1,6 +1,6 @@
 
 for (l in 1:length(fileNames)){
-    # 索引
+    # index
     index<-rle(sort(dfcluster[[l]]$index))
     index<-as.matrix(cbind(index$values,index$lengths))
     Directory <- list()
@@ -9,7 +9,7 @@ for (l in 1:length(fileNames)){
         temp<-temp[temp[,1]==index[i,1],]
         Directory<-c(Directory, list(temp))
         names(Directory)[i]<-i}
-    # 边线
+    # Edge
     Edge<-as.data.frame(matrix (data=NA, nrow = 0, ncol = 2, byrow = FALSE, dimnames = NULL))
     for (i in 1:length(Directory)){
         for (j in 1:(length(Directory[[i]][,1])-1)){
@@ -28,10 +28,10 @@ for (l in 1:length(fileNames)){
         }else{count=count+1}}
     Edge<-na.omit(Edge)
     Edge<-Edge%>%distinct(from,to, .keep_all = T)
-    # 节点
+    # Node 
     Node <- dfcluster[[l]][,-1]
     Node <- Node %>% distinct(CDR3bTRBVTRBJ, .keep_all = TRUE)
-    # 图像
+    # graph
     g<-graph_from_data_frame(Edge,direct=FALSE,vertices=Node)
     V(g)$label <- NA
     V(g)$size <- (log10(V(g)$Freq)+6)*2
@@ -47,7 +47,7 @@ for (l in 1:length(fileNames)){
 
     #graph_attr(g, "layout") <- layout_with_graphopt(g,niter=800,charge=0.08,mass=50,spring.length=0,spring.constant=1,max.sa.movement=20)
     # graph_attr(g, "layout") <- layout_with_graphopt(g,niter=500,charge=0.001,mass=30,spring.length=0,spring.constant=1,max.sa.movement=5)
-    # 输出
+    # plot
     png(filename = paste("E:/Analysis/TCR-seq/Graph/Clustera/",'Sample-Cluster-',names(dfcluster)[l],'.png',sep=""),width = 1800,height = 1800,res = NA)
     plot(g)
     title(sub = paste("Sample-",names(dfcluster)[l],sep=""),cex.sub=10)
